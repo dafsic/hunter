@@ -1,0 +1,23 @@
+server = "hunter"
+
+[log]
+level = "debug"
+
+# web服务配置
+[web]
+mode = "debug"
+addr = ":11008"
+
+
+[ws]
+proxy = ""
+write_wati = 1
+
+[http]
+proxy = ""
+
+[binance]
+api_key = ""
+secret_key = ""
+ed25519_api_key = ""
+ed25519_private_key = ""

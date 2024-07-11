@@ -10,11 +10,11 @@ addr = ":11008"
 
 
 [ws]
-proxy = ""
+proxy = "http://10.0.64.224:7890"
 write_wati = 1
 
 [http]
-proxy = ""
+proxy = "http://10.0.64.224:7890"
 
 [binance]
 api_key = ""

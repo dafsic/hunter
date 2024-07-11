@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/dafsic/hunter/config"
+	"github.com/dafsic/hunter/exchange/binance"
 	jcdhttp "github.com/dafsic/hunter/pkg/http"
 	"github.com/dafsic/hunter/pkg/log"
 	"github.com/dafsic/hunter/pkg/ws"
@@ -15,8 +16,8 @@ import (
 )
 
 var TestCmd = &cli.Command{
-	Name:  "test1",
-	Usage: "run test1 strategy",
+	Name:  "test",
+	Usage: "run test strategy",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:    "config",
@@ -39,6 +40,7 @@ var TestCmd = &cli.Command{
 			log.ModuleFx,
 			jcdhttp.ModuleFx,
 			test.ModuleFx,
+			binance.ModuleFx,
 			fx.StartTimeout(time.Second*30),
 			fx.StopTimeout(time.Second*30),
 			//fx.NopLogger,

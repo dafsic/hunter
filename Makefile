@@ -47,7 +47,7 @@ endif
 compile: $(BINDIR)/$(BINNAME) ## Compile the binary
 
 $(BINDIR)/$(BINNAME): $(SRC)
-	GOOS=linux GOARCH=amd64 CGO_ENABLE=$(CGO_ENABLE) go build -trimpath -ldflags "$(GO_LDFLAGS)" -o $(BINDIR)/$(BINNAME) ./cmd/hunter
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=$(CGO_ENABLED) go build -trimpath -ldflags "$(GO_LDFLAGS)" -o $(BINDIR)/$(BINNAME) ./cmd/hunter
 
 # --------------------------------------------------------------------------------
 # build image

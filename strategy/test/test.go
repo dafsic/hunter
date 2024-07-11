@@ -3,10 +3,7 @@ package test
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"strconv"
-
-	"syscall"
 
 	"github.com/dafsic/hunter/exchange/binance"
 	"github.com/dafsic/hunter/exchange/model"
@@ -16,6 +13,7 @@ import (
 
 type Stratety interface {
 	Start()
+	Active()
 }
 
 type Test struct {
@@ -31,13 +29,13 @@ func NewTest(l log.Logger, binanceSpot *binance.BinanceSpotExchange) *Test {
 }
 
 func (t *Test) Start() {
+	t.l.Log(slog.LevelInfo, "test strategy start")
 	symbolInfo := t.binanceSpot.GetStructOfAllSymbolInfo()
 
 	// 获取所有交易对
 	symbolNames, ok := symbolInfo.GetAllSymbolName(model.BinanceSpot)
 	if !ok {
 		t.l.Log(slog.LevelError, "获取交易所信息失败")
-		Exit()
 	}
 
 	symbolNames = symbolNames[:300]
@@ -54,7 +52,6 @@ func (t *Test) Start() {
 	infos, ok := symbolInfo.GetAllSymbol(model.BinanceSpot)
 	if !ok {
 		t.l.Log(slog.LevelError, "获取交易所信息失败")
-		Exit()
 	}
 	for _, info := range infos {
 		allUpdateID[info.NameInExchange] = newUpdateID()
@@ -78,12 +75,13 @@ func (t *Test) Start() {
 		err := t.binanceSpot.SubBookTicker(symbolNames, callback, true)
 		if err != nil {
 			t.l.Log(slog.LevelError, "获取交易所信息失败")
-			Exit()
 			return
 		}
 	}
 }
 
-func Exit() {
-	syscall.Kill(os.Getpid(), syscall.SIGTERM)
-}
+// func Exit() {
+// 	syscall.Kill(os.Getpid(), syscall.SIGINT)
+// }
+
+func (t *Test) Active() {}

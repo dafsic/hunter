@@ -18,7 +18,7 @@ type Params struct {
 
 	Cfg         *config.Cfg
 	Logger      log.Logger
-	BinanceSpot *binance.BinanceSpotExchange
+	BinanceSpot *binance.BinanceSpotExchange `name:"BinanceSpot"`
 }
 
 type Result struct {
@@ -33,6 +33,7 @@ func NewFx(p Params) Result {
 
 	p.Lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
+			go t.Start()
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
@@ -46,5 +47,5 @@ func NewFx(p Params) Result {
 // Module for fx
 var ModuleFx = fx.Module(ModuleName,
 	fx.Provide(NewFx),
-	fx.Invoke(Stratety.Start),
+	fx.Invoke(Stratety.Active),
 )

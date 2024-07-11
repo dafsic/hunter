@@ -39,8 +39,7 @@ func NewFx(p Params) (Result, error) {
 	p.Lc.Append(fx.Hook{
 		// app.start调用
 		OnStart: func(ctx context.Context) error {
-			e.Init() // 不能阻塞
-			return nil
+			return e.Init() // 不能阻塞
 		},
 		// app.stop调用，收到中断信号的时候调用app.stop
 		OnStop: func(ctx context.Context) error {

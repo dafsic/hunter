@@ -2,7 +2,6 @@ package log
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"sync"
@@ -67,7 +66,6 @@ func (b *BufferLogger) Log(level slog.Level, msg string, args ...any) {
 }
 
 func (b *BufferLogger) Run(_ context.Context) {
-	fmt.Println("BufferLogger Runing...")
 	var (
 		msg *Message
 		ok  bool

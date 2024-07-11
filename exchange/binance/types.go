@@ -36,7 +36,6 @@ func (e *BinanceSpotExchange) NewWsClient(url, localIP string, callback ws.Callb
 		for {
 			select {
 			case <-c.stopC:
-				c.client.Close()
 				return
 			case <-disconnectC:
 				c.rLock.Lock()
@@ -60,6 +59,7 @@ func (e *BinanceSpotExchange) NewWsClient(url, localIP string, callback ws.Callb
 
 func (c *BinanceWsClient) Close() {
 	c.stopC <- struct{}{}
+	c.client.Close() // 等待websket连接关闭。要退出了，就不用加锁了，最保险就加一个waitgroup，等待处理断线重连程序结束
 	close(c.stopC)
 }
 

@@ -121,6 +121,8 @@ func NewBinanceSpot(l log.Logger, wsMgr ws.Manager, httpMgr jcdhttp.Manager, cfg
 }
 
 func (e *BinanceSpotExchange) Init() (err error) {
+	e.logger.Log(slog.LevelInfo, "binanceSpot exchange init...")
+	defer e.logger.Log(slog.LevelInfo, "binanceSpot exchange init done")
 	// 初始化交易规范
 	e.allSymbolInfo, err = e.getSymbolInfo()
 	if err != nil {
@@ -178,9 +180,15 @@ func (e *BinanceSpotExchange) Init() (err error) {
 
 func (e *BinanceSpotExchange) Exit() {
 	e.cancelFunc()
-	e.wsOrderClient.Close()
-	e.wsApiClient.Close()
-	e.wsAccountClient.Close()
+	if e.wsOrderClient != nil {
+		e.wsOrderClient.Close()
+	}
+	if e.wsApiClient != nil {
+		e.wsApiClient.Close()
+	}
+	if e.wsAccountClient != nil {
+		e.wsAccountClient.Close()
+	}
 	for _, v := range e.wsSubBookTickerClients {
 		v.Close()
 	}

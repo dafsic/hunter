@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/dafsic/hunter/config"
-	"github.com/dafsic/hunter/exchange/binance"
+	"github.com/dafsic/hunter/exchange"
 	"github.com/dafsic/hunter/pkg/log"
 
 	"go.uber.org/fx"
@@ -18,7 +18,7 @@ type Params struct {
 
 	Cfg         *config.Cfg
 	Logger      log.Logger
-	BinanceSpot *binance.BinanceSpotExchange `name:"BinanceSpot"`
+	BinanceSpot exchange.Exchange `name:"BinanceSpot"`
 }
 
 type Result struct {

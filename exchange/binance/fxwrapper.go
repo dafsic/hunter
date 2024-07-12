@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/dafsic/hunter/config"
+	"github.com/dafsic/hunter/exchange"
 	"github.com/dafsic/hunter/pkg/http"
 	"github.com/dafsic/hunter/pkg/log"
 	"github.com/dafsic/hunter/pkg/ws"
@@ -26,7 +27,7 @@ type Params struct {
 type Result struct {
 	fx.Out
 
-	Exchange *BinanceSpotExchange `name:"BinanceSpot"`
+	Exchange exchange.Exchange `name:"BinanceSpot"`
 }
 
 // NewFx wrap NewBinanceSpot with fx

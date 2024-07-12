@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"strconv"
 
-	"github.com/dafsic/hunter/exchange/binance"
+	"github.com/dafsic/hunter/exchange"
 	"github.com/dafsic/hunter/exchange/model"
 	"github.com/dafsic/hunter/pkg/log"
 	"github.com/valyala/fastjson"
@@ -17,11 +17,11 @@ type Stratety interface {
 }
 
 type Test struct {
-	binanceSpot *binance.BinanceSpotExchange
+	binanceSpot exchange.Exchange
 	l           log.Logger
 }
 
-func NewTest(l log.Logger, binanceSpot *binance.BinanceSpotExchange) *Test {
+func NewTest(l log.Logger, binanceSpot exchange.Exchange) *Test {
 	return &Test{
 		l:           l,
 		binanceSpot: binanceSpot,

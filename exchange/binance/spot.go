@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dafsic/hunter/config"
+	"github.com/dafsic/hunter/exchange"
 	jcdhttp "github.com/dafsic/hunter/pkg/http"
 	"github.com/dafsic/hunter/pkg/log"
 	"github.com/dafsic/hunter/pkg/ws"
@@ -1107,3 +1108,5 @@ func (e *BinanceSpotExchange) Test() {
 		"timestamp":        strconv.FormatInt(time.Now().UnixMilli(), 10),
 	}, true)
 }
+
+var _ exchange.Exchange = (*BinanceSpotExchange)(nil)

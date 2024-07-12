@@ -1,7 +1,6 @@
 package exchange
 
 import (
-	"github.com/dafsic/hunter/exchange/binance"
 	"github.com/dafsic/hunter/exchange/model"
 	"github.com/valyala/fastjson"
 )
@@ -69,5 +68,3 @@ type Exchange interface {
 	/* ================================================ 测试 ================================================ */
 	Test()
 }
-
-var _ Exchange = (*binance.BinanceSpotExchange)(nil)

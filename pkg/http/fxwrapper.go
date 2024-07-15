@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"os"
 
 	"github.com/dafsic/hunter/config"
 	"github.com/dafsic/hunter/pkg/log"
@@ -15,8 +16,7 @@ type Params struct {
 	fx.In
 	Lc fx.Lifecycle
 
-	Cfg    *config.Cfg
-	Logger log.Logger
+	Cfg *config.Cfg
 }
 
 type Result struct {
@@ -27,12 +27,17 @@ type Result struct {
 
 // NewFx wrap Manager with fx
 func NewFx(p Params) Result {
-	m := New(p.Logger, WithProxy(p.Cfg.Ws.Proxy))
+	logger := log.New(os.Stdout, ModuleName, log.StringToLevel(p.Cfg.Log.Level))
+	m := New(logger, WithProxy(p.Cfg.Ws.Proxy))
 
 	p.Lc.Append(fx.Hook{
 		// app.start调用
 		OnStart: func(ctx context.Context) error {
 			m.Init() // 不能阻塞
+			return nil
+		},
+		OnStop: func(ctx context.Context) error {
+			logger.Flush()
 			return nil
 		},
 	})

@@ -4,9 +4,9 @@ import (
 	"time"
 
 	"github.com/dafsic/hunter/config"
-	"github.com/dafsic/hunter/exchange/binance"
+	binancePerps "github.com/dafsic/hunter/exchange/binance/perps"
+	binanceSpot "github.com/dafsic/hunter/exchange/binance/spot"
 	jcdhttp "github.com/dafsic/hunter/pkg/http"
-	"github.com/dafsic/hunter/pkg/log"
 	"github.com/dafsic/hunter/pkg/ws"
 	"github.com/dafsic/hunter/strategy/test"
 
@@ -37,10 +37,10 @@ var TestCmd = &cli.Command{
 		fx.New(
 			fx.Supply(cfg),
 			ws.ModuleFx,
-			log.ModuleFx,
 			jcdhttp.ModuleFx,
 			test.ModuleFx,
-			binance.ModuleFx,
+			binanceSpot.ModuleFx,
+			binancePerps.ModuleFx,
 			fx.StartTimeout(time.Second*30),
 			fx.StopTimeout(time.Second*30),
 			//fx.NopLogger,

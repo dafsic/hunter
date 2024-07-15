@@ -1,6 +1,8 @@
 package ws
 
 import (
+	"context"
+	"os"
 	"time"
 
 	"github.com/dafsic/hunter/config"
@@ -15,8 +17,7 @@ type Params struct {
 	fx.In
 	Lc fx.Lifecycle
 
-	Cfg    *config.Cfg
-	Logger log.Logger
+	Cfg *config.Cfg
 }
 
 type Result struct {
@@ -27,8 +28,16 @@ type Result struct {
 
 // NewFx wrap Manager with fx
 func NewFx(p Params) Result {
+	logger := log.New(os.Stdout, ModuleName, log.StringToLevel(p.Cfg.Log.Level))
 	writeWait := p.Cfg.Ws.WriteWait
-	m := New(p.Logger, WithProxy(p.Cfg.Ws.Proxy), WithWriteWait(time.Duration(writeWait)*time.Second))
+	m := New(logger, WithProxy(p.Cfg.Ws.Proxy), WithWriteWait(time.Duration(writeWait)*time.Second))
+
+	p.Lc.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			logger.Flush()
+			return nil
+		},
+	})
 
 	return Result{Manager: m}
 }

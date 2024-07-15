@@ -1,4 +1,4 @@
-package binance
+package perps
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,61 +15,66 @@ import (
 
 	"github.com/dafsic/hunter/config"
 	"github.com/dafsic/hunter/exchange"
+	"github.com/dafsic/hunter/exchange/binance"
+	"github.com/dafsic/hunter/exchange/model"
 	jcdhttp "github.com/dafsic/hunter/pkg/http"
 	"github.com/dafsic/hunter/pkg/log"
 	"github.com/dafsic/hunter/pkg/ws"
-
-	"github.com/dafsic/hunter/exchange/model"
 	"github.com/dafsic/hunter/utils"
-
 	jsoniter "github.com/json-iterator/go"
 	"github.com/valyala/fastjson"
 )
 
-type BinanceSpotExchange struct {
-	apiKey                  string
-	secretKey               string
-	ed25519ApiKey           string
-	ed25519PrivateKey       ed25519.PrivateKey
-	name                    model.ExchangeName         // 交易所名称
-	allBalance              *model.AllBalance          // 账户信息
-	allPosition             *model.AllPosition         // 持仓信息
-	allSymbolInfo           *model.AllSymbolsInfo      // 交易规范
-	balanceCallback         func(data *fastjson.Value) // 账户更新回调函数
-	positionCallback        func(data *fastjson.Value) // 持仓更新回调函数
-	orderCallback           func(data *fastjson.Value) // 订单更新回调函数
-	wsOrderClient           *BinanceWsClient           // 下单专用通道
-	wsApiClient             *BinanceWsClient           // wsApi发送通道
-	wsAccountClient         *BinanceWsClient           // 账户通道
-	wsSubBookTickerClients  []*BinanceWsClient         // 订阅最优挂单通道数组
-	operateWsReadChanMap    *sync.Map                  // wsApi广播Map  id:chan *fastjson.Value
-	orderDetailMap          *model.OrderDetailMap      // 订单映射 (ClientOrderID:*model.OrderDetail)
-	rateLimitsMinuteCount   int64                      // IP限速报警阈值
-	rateLimitsDayCount      int64                      // 下单1天限速报警阈值
-	rateLimitsSecond10Count int64                      // 下单10秒限速报警阈值
-	rateLimitC              chan error                 // 限速警报通道
-	operateWsUrl            string                     // wsApi wsUrl
-	subWsbaseUrl            string                     // 订阅型wsUrl
-	wsHeartBeat             int                        // 心跳间隔
-	baseHTTPUrl             string                     // baseUrl
-	baseHTTPUrlS            []string                   // baseUrl合集
-	baseHTTPUrlRlock        *sync.RWMutex              // baseUrl读写锁
-	wsManager               ws.Manager                 // ws管理器
-	httpManger              jcdhttp.Manager            // http client 管理器
-	logger                  log.Logger                 // 日志
-	wg                      sync.WaitGroup             // 等待组
-	ctx                     context.Context            // 上下文
-	cancelFunc              context.CancelFunc         // 用于交易所退出时，通知所有goroutine退出
+type BinancePerpsExchange struct {
+	apiKey            string
+	secretKey         string
+	ed25519ApiKey     string
+	ed25519PrivateKey ed25519.PrivateKey
+	name              model.ExchangeName // 交易所名称
+
+	allBalance    *model.AllBalance     // 账户信息
+	allPosition   *model.AllPosition    // 持仓信息
+	allSymbolInfo *model.AllSymbolsInfo // 交易规范
+
+	balanceCallback  func(data *fastjson.Value) // 账户更新回调函数
+	positionCallback func(data *fastjson.Value) // 持仓更新回调函数
+	orderCallback    func(data *fastjson.Value) // 订单更新回调函数
+
+	wsOrderClient          *binance.WsClient     // 下单专用通道
+	wsApiClient            *binance.WsClient     // wsApi发送通道
+	wsAccountClient        *binance.WsClient     // 账户通道
+	wsSubBookTickerClients []*binance.WsClient   // 订阅最优挂单通道数组
+	operateWsReadChanMap   *sync.Map             // wsApi广播Map  string:chan *fastjson.Value
+	orderDetailMap         *model.OrderDetailMap // 订单映射 (ClientOrderID:*model.OrderDetail)
+
+	rateLimitsMinuteCount   int64      // IP限速报警阈值
+	rateLimitsDayCount      int64      // 下单1天限速报警阈值
+	rateLimitsSecond10Count int64      // 下单10秒限速报警阈值
+	rateLimitC              chan error // 限速警报通道
+
+	operateWsUrl     string        // wsApi wsUrl
+	subWsbaseUrl     string        // 订阅型wsUrl
+	wsHeartBeat      int           // 心跳时间
+	baseHTTPUrl      string        // baseUrl
+	baseHTTPUrlS     []string      // baseUrl合集
+	baseHTTPUrlRlock *sync.RWMutex // baseUrl读写锁
+
+	wsManager  ws.Manager         // ws管理器
+	httpManger jcdhttp.Manager    // http client 管理器
+	logger     log.Logger         // 日志
+	wg         sync.WaitGroup     // 等待组
+	ctx        context.Context    // 上下文
+	cancelFunc context.CancelFunc // 用于交易所退出时，通知所有goroutine退出
 }
 
 /* ========================= 构建和初始化 ========================= */
 
-func NewBinanceSpot(l log.Logger, wsMgr ws.Manager, httpMgr jcdhttp.Manager, cfg config.BinanceCfg) (*BinanceSpotExchange, error) {
-	exchange := &BinanceSpotExchange{
+func NewBinancePerps(l log.Logger, wsMgr ws.Manager, httpMgr jcdhttp.Manager, cfg config.BinanceCfg) (*BinancePerpsExchange, error) {
+	exchange := &BinancePerpsExchange{
 		apiKey:        cfg.ApiKey,
 		secretKey:     cfg.SecretKey,
 		ed25519ApiKey: cfg.Ed25519ApiKey,
-		name:          model.BinanceSpot,
+		name:          model.BinancePerps,
 
 		allBalance:    model.NewAllBalance(),
 		allPosition:   model.NewAllPosition(),
@@ -87,22 +91,17 @@ func NewBinanceSpot(l log.Logger, wsMgr ws.Manager, httpMgr jcdhttp.Manager, cfg
 		rateLimitsSecond10Count: 95,
 		rateLimitC:              make(chan error),
 
-		operateWsUrl:     "wss://ws-api.binance.com:443/ws-api/v3",
-		subWsbaseUrl:     "wss://stream.binance.com:443",
+		operateWsUrl:     "wss://ws-fapi.binance.com/ws-fapi/v1",
+		subWsbaseUrl:     "wss://fstream.binance.com",
 		wsHeartBeat:      60,
-		baseHTTPUrl:      "https://api.binance.com",
+		baseHTTPUrl:      "https://fapi.binance.com",
 		baseHTTPUrlRlock: new(sync.RWMutex),
-		baseHTTPUrlS: []string{
-			"https://api1.binance.com",
-			"https://api2.binance.com",
-			"https://api3.binance.com",
-			"https://api4.binance.com",
-		},
-		logger:     l,
+		baseHTTPUrlS:     []string{},
+
 		wsManager:  wsMgr,
 		httpManger: httpMgr,
+		logger:     l,
 	}
-	exchange.ctx, exchange.cancelFunc = context.WithCancel(context.Background())
 
 	// 解析ed25519私钥
 	if cfg.Ed25519PrivateKey != "" {
@@ -121,9 +120,10 @@ func NewBinanceSpot(l log.Logger, wsMgr ws.Manager, httpMgr jcdhttp.Manager, cfg
 	return exchange, nil
 }
 
-func (e *BinanceSpotExchange) Init() (err error) {
-	e.logger.Log(slog.LevelInfo, "binanceSpot exchange init...")
-	defer e.logger.Log(slog.LevelInfo, "binanceSpot exchange init done")
+func (e *BinancePerpsExchange) Init() (err error) {
+	e.logger.Info("binanceSpot exchange init...")
+	defer e.logger.Info("binanceSpot exchange init done")
+
 	// 初始化交易规范
 	e.allSymbolInfo, err = e.getSymbolInfo()
 	if err != nil {
@@ -135,51 +135,50 @@ func (e *BinanceSpotExchange) Init() (err error) {
 	}
 
 	// 建立下单专用连接
-	e.wsOrderClient, err = e.NewWsClient(e.operateWsUrl, "", e.operateWsCallback, false)
+	e.wsOrderClient, err = binance.NewWsClientWithReconnect(e.logger, e.wsManager, e.operateWsUrl, "", e.operateWsCallback, e.wsHeartBeat, false)
 	if err != nil {
-		e.logger.Log(slog.LevelError, "create websocket client error", "url", e.operateWsUrl, "error", err.Error())
+		e.logger.Error("create websocket client error", "url", e.operateWsUrl, "error", err.Error())
 		return err
 	}
 	err = e.wsLogin(e.wsOrderClient)
 	if err != nil {
-		e.logger.Log(slog.LevelError, "websocket login error", "url", e.operateWsUrl, "error", err.Error())
+		e.logger.Error("websocket login error", "url", e.operateWsUrl, "error", err.Error())
 		return err
 	}
 
 	// 建立操作ws连接
-	e.wsApiClient, err = e.NewWsClient(e.operateWsUrl, "", e.operateWsCallback, false)
+	e.wsApiClient, err = binance.NewWsClientWithReconnect(e.logger, e.wsManager, e.operateWsUrl, "", e.operateWsCallback, e.wsHeartBeat, false)
 	if err != nil {
-		e.logger.Log(slog.LevelError, "create websocket client error", "url", e.operateWsUrl, "error", err.Error())
+		e.logger.Error("create websocket client error", "url", e.operateWsUrl, "error", err.Error())
 		return err
 	}
 	err = e.wsLogin(e.wsOrderClient)
 	if err != nil {
-		e.logger.Log(slog.LevelError, "websocket login error", "url", e.operateWsUrl, "error", err.Error())
+		e.logger.Error("websocket login error", "url", e.operateWsUrl, "error", err.Error())
 		return err
 	}
 
 	// 初始化账户信息
 	e.allBalance, err = e.GetHTTPBalance()
 	if err != nil {
-		e.logger.Log(slog.LevelError, "GetHTTPBalance fail", "error", err)
+		e.logger.Error("GetHTTPBalance fail", "error", err)
 		return err
 	}
 
-	e.wsAccountClient, err = e.NewWsClient(e.subWsbaseUrl+"/ws/"+e.getLisenKey(), "", e.accountWsCallback, true)
+	// 为什么原来没有listenkey？？？？
+	e.wsAccountClient, err = binance.NewWsClientWithReconnect(e.logger, e.wsManager, e.subWsbaseUrl+"/ws/"+e.getLisenKey(), "", e.accountWsCallback, e.wsHeartBeat, true)
 	if err != nil {
-		e.logger.Log(slog.LevelError, "create websocket client error", "url", e.operateWsUrl, "error", err.Error())
+		e.logger.Error("create websocket client error", "url", e.operateWsUrl, "error", err.Error())
 		return err
 	}
 
-	// 更新最快api
-	go e.updateFasterApi()
 	// 更新交易规范
 	go e.updateAllSymbolInfo()
 
 	return
 }
 
-func (e *BinanceSpotExchange) Exit() {
+func (e *BinancePerpsExchange) Exit() {
 	e.cancelFunc()
 	if e.wsOrderClient != nil {
 		e.wsOrderClient.Close()
@@ -194,39 +193,11 @@ func (e *BinanceSpotExchange) Exit() {
 		v.Close()
 	}
 	e.wg.Wait()
-	e.logger.Log(slog.LevelInfo, "exchange exit", "exchage", e.name)
+	e.logger.Info("exchange exit", "exchange", e.name)
+	e.logger.Flush()
 }
 
-func (e *BinanceSpotExchange) updateFasterApi() {
-	// 更新最快api
-	e.wg.Add(1)
-	defer e.wg.Done()
-
-	tick := time.NewTicker(60 * time.Second)
-	defer tick.Stop()
-
-	for {
-		select {
-		case <-e.ctx.Done():
-			return
-		case <-tick.C:
-			minTime := 3 * time.Second
-			for _, vlaue := range e.baseHTTPUrlS {
-				urlPath := vlaue + "/api/v3/ping"
-				t1 := time.Now()
-				e.sendNone(urlPath, "GET", nil, false)
-				if time.Since(t1) < minTime {
-					minTime = time.Since(t1)
-					e.baseHTTPUrlRlock.Lock()
-					e.baseHTTPUrl = vlaue
-					e.baseHTTPUrlRlock.Unlock()
-				}
-			}
-		}
-	}
-}
-
-func (e *BinanceSpotExchange) updateAllSymbolInfo() {
+func (e *BinancePerpsExchange) updateAllSymbolInfo() {
 	e.wg.Add(1)
 	defer e.wg.Done()
 
@@ -247,26 +218,7 @@ func (e *BinanceSpotExchange) updateAllSymbolInfo() {
 	}
 }
 
-/* ========================= 辅助函数 ========================= */
-func (e *BinanceSpotExchange) getBaseUrl() string {
-	// 获取现货baseUrl
-	e.baseHTTPUrlRlock.RLock()
-	defer e.baseHTTPUrlRlock.RUnlock()
-	return e.baseHTTPUrl
-}
-
-func (e *BinanceSpotExchange) addHttpSign(urlPath string) string {
-	// HTTP鉴权请求添加 timestamp、recvWindow、signature 参数
-	if urlPath != "" {
-		urlPath += "&"
-	}
-	urlPath += "timestamp=" + strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
-	urlPath += "&recvWindow=3500"
-	urlPath += "&signature=" + utils.GetHamcSha256HexEncodeSignStr(urlPath, e.secretKey)
-	return urlPath
-}
-
-func (e *BinanceSpotExchange) wsLogin(client *BinanceWsClient) error {
+func (e *BinancePerpsExchange) wsLogin(client *binance.WsClient) error {
 	// WS登录
 	params := map[string]string{
 		"apiKey":    e.ed25519ApiKey,
@@ -292,13 +244,32 @@ func (e *BinanceSpotExchange) wsLogin(client *BinanceWsClient) error {
 	return nil
 }
 
-func (e *BinanceSpotExchange) operateWsCallback(msg []byte) {
+/* ========================= 辅助函数 ========================= */
+func (e *BinancePerpsExchange) getBaseUrl() string {
+	// 获取现货baseUrl
+	e.baseHTTPUrlRlock.RLock()
+	defer e.baseHTTPUrlRlock.RUnlock()
+	return e.baseHTTPUrl
+}
+
+func (e *BinancePerpsExchange) addHttpSign(urlPath string) string {
+	// HTTP鉴权请求添加 timestamp、recvWindow、signature 参数
+	if urlPath != "" {
+		urlPath += "&"
+	}
+	urlPath += "timestamp=" + strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
+	urlPath += "&recvWindow=3500"
+	urlPath += "&signature=" + utils.GetHamcSha256HexEncodeSignStr(urlPath, e.secretKey)
+	return urlPath
+}
+
+func (e *BinancePerpsExchange) operateWsCallback(msg []byte) {
 	// websocket API 的回调函数
 	var parser fastjson.Parser
 
 	data, err := parser.ParseBytes(msg)
 	if err != nil {
-		e.logger.Log(slog.LevelWarn, "parse ws message error", "error", err.Error())
+		e.logger.Warn("parse ws message error", "error", err.Error())
 		return
 	}
 
@@ -310,39 +281,38 @@ func (e *BinanceSpotExchange) operateWsCallback(msg []byte) {
 	}
 
 	for _, rateLimits := range data.GetArray("rateLimits") {
-
 		count := rateLimits.GetInt64("count")
 		switch string(rateLimits.GetStringBytes("interval")) {
 		case "SECOND":
 			if count > e.rateLimitsSecond10Count {
 				e.rateLimitC <- model.ErrOrderRateLimits
-				e.logger.Log(slog.LevelWarn, "websocket api rate limits", "error", "SECOND 10秒限速超限", "count", count, "exchange", e.name)
+				e.logger.Warn("websocket api rate limits", "error", "SECOND 10秒限速超限", "count", count)
 				//jcdlog.TgString(model.Warning, "msg=WS Api RateLimits	error=SECOND 10s限速超限	count="+strconv.FormatInt(count, 10)+"	exchange="+string(e.name))
 			}
 		case "DAY":
-			if count > e.rateLimitsDayCount {
+			if count > e.rateLimitsSecond10Count {
 				e.rateLimitC <- model.ErrOrderRateLimits
-				e.logger.Log(slog.LevelWarn, "websocket api rate limits", "error", "DAY 1天限速超限", "count", count, "exchange", e.name)
+				e.logger.Warn("websocket api rate limits", "error", "DAY 1天限速超限", "count", count)
 				//jcdlog.TgString(model.Warning, "msg=WS Api RateLimits	error=DAY 1天限速超限	count="+strconv.FormatInt(count, 10)+"	exchange="+string(e.name))
 			}
 		case "MINUTE":
-			if count > e.rateLimitsMinuteCount {
+			if count > e.rateLimitsSecond10Count {
 				e.rateLimitC <- model.ErrIpRateLimits
-				e.logger.Log(slog.LevelWarn, "websocket api rate limits", "error", "MITNUTE 1分钟限速超限", "count", count, "exchange", e.name)
+				e.logger.Warn("websocket api rate limits", "error", "MITNUTE 1分钟限速超限", "count", count)
 				//jcdlog.TgString(model.Warning, "msg=WS Api RateLimits	error=MINUTE 1分钟限速超限	count="+strconv.FormatInt(count, 10)+"	exchange="+string(e.name))
 			}
 		}
 	}
 
-	e.logger.Log(slog.LevelInfo, "websocket api event", "res", string(msg))
+	e.logger.Info("websocket api event", "res", string(msg))
 }
 
-func (e *BinanceSpotExchange) accountWsCallback(msg []byte) {
+func (e *BinancePerpsExchange) accountWsCallback(msg []byte) {
 	var parser fastjson.Parser
 
 	data, err := parser.ParseBytes(msg)
 	if err != nil {
-		e.logger.Log(slog.LevelWarn, "WS ParseBytes error", "error", err)
+		e.logger.Warn("parse ws message error", "error", err.Error())
 		return
 	}
 
@@ -363,12 +333,12 @@ func (e *BinanceSpotExchange) accountWsCallback(msg []byte) {
 		e.orderCallback(data)
 	}
 
-	e.logger.Log(slog.LevelInfo, "websocket account event", "res", string(msg))
+	e.logger.Info("websocket account event", "res", string(msg))
 }
 
-func (e *BinanceSpotExchange) getLisenKey() (lisenKey string) {
+func (e *BinancePerpsExchange) getLisenKey() (lisenKey string) {
 	// 获取现货LisenKey
-	urlPath := e.getBaseUrl() + "/api/v3/userDataStream"
+	urlPath := e.getBaseUrl() + "fapi/v1/listenKey"
 	_, res, err := e.sendApik(urlPath, "POST", nil, false)
 	if err != nil {
 		return ""
@@ -386,7 +356,8 @@ func (e *BinanceSpotExchange) getLisenKey() (lisenKey string) {
 	return lisenKeyData.ListenKey
 }
 
-func (e *BinanceSpotExchange) lisenKeyHearbeat(lisenKey string) {
+func (e *BinancePerpsExchange) lisenKeyHearbeat(lisenKey string) {
+	// 更新 LisenKey 有效期
 	e.wg.Add(1)
 	defer e.wg.Done()
 
@@ -399,28 +370,28 @@ func (e *BinanceSpotExchange) lisenKeyHearbeat(lisenKey string) {
 		case <-e.ctx.Done():
 			return
 		case <-tick.C:
-			urlPath := e.getBaseUrl() + "/api/v3/userDataStream"
+			urlPath := e.getBaseUrl() + "/fapi/v1/listenKey"
 			e.sendApik(urlPath, "PUT", map[string]string{"listenKey": lisenKey}, false)
 		}
 	}
 }
 
-func (e *BinanceSpotExchange) getSymbolInfo() (allSymbolInfo *model.AllSymbolsInfo, err error) {
+func (e *BinancePerpsExchange) getSymbolInfo() (allSymbolInfo *model.AllSymbolsInfo, err error) {
 	var (
 		parser  fastjson.Parser
-		urlPath = e.getBaseUrl() + "/api/v3/exchangeInfo"
+		urlPath = e.getBaseUrl() + "/fapi/v1/exchangeInfo"
 		res     []byte
 	)
 
 	_, res, err = e.sendNone(urlPath, "GET", nil, false)
 	if err != nil {
-		e.logger.Log(slog.LevelWarn, "getSymbolInfo error", "error", err)
+		e.logger.Warn("getSymbolInfo error", "error", err)
 		return
 	}
 
 	data, err := parser.ParseBytes(res)
 	if err != nil {
-		e.logger.Log(slog.LevelWarn, "getSymbolInfo error", "error", err)
+		e.logger.Warn("parse ws message error", "error", err.Error())
 		return
 	}
 
@@ -478,7 +449,7 @@ func (e *BinanceSpotExchange) getSymbolInfo() (allSymbolInfo *model.AllSymbolsIn
 
 /* ========================= HTTP底层执行 ========================= */
 
-func (e *BinanceSpotExchange) sendNone(url string, method string, payload map[string]string, isLog bool) (code int, res []byte, err error) {
+func (e *BinancePerpsExchange) sendNone(url string, method string, payload map[string]string, isLog bool) (code int, res []byte, err error) {
 
 	httpClient := e.httpManger.NewClient()
 	req := httpClient.Req
@@ -492,37 +463,33 @@ func (e *BinanceSpotExchange) sendNone(url string, method string, payload map[st
 	req.SetRequestURI(url)
 
 	if isLog {
-		e.logger.Log(slog.LevelDebug, "HTTP Send", "url", url, "exchange", string(e.name))
+		e.logger.Debug("HTTP Send", "url", url)
 	}
 	err = httpClient.Client.Do(req, resp)
 	if err != nil {
-		e.logger.Log(slog.LevelError, "HTTP Error", "url", url, "exchange", string(e.name), "error", err)
-		return
+		e.logger.Error("HTTP Error", "url", url, "error", err)
 	}
 
 	code = resp.StatusCode()
 	res = resp.Body()
 
-	if res == nil {
-		res = []byte("null")
-	}
-
 	if isLog {
-		e.logger.Log(slog.LevelDebug, "HTTP Res", "res", string(res), "exchange", string(e.name))
+		e.logger.Debug("HTTP Res", "res", string(res))
 	}
 
 	weight, _ := strconv.ParseInt(string(resp.Header.Peek("X-Mbx-Used-Weight-1m")), 10, 64)
 
 	if weight > e.rateLimitsMinuteCount {
 		err = model.ErrIpRateLimits
-		e.logger.Log(slog.LevelWarn, "WS Api RateLimits", "error", "MINUTE 1分钟限速超限", "weight", weight, "exchange", string(e.name))
+		e.logger.Warn("WS Api RateLimits", "error", "MINUTE 1分钟限速超限", "weight", weight)
 		//jcdlog.TgString(model.Warning, "msg=WS Api RateLimits	error=MINUTE 1分钟限速超限	weight="+strconv.FormatInt(weight, 10)+"	exchange="+string(e.name))
 		e.rateLimitC <- err
 	}
 
 	return
 }
-func (e *BinanceSpotExchange) sendSign(url string, method string, payload map[string]string, isLog bool) (code int, res []byte, err error) {
+
+func (e *BinancePerpsExchange) sendSign(url string, method string, payload map[string]string, isLog bool) (code int, res []byte, err error) {
 	httpClient := e.httpManger.NewClient()
 	req := httpClient.Req
 	resp := httpClient.Resp
@@ -536,35 +503,30 @@ func (e *BinanceSpotExchange) sendSign(url string, method string, payload map[st
 	req.SetRequestURI(url)
 
 	if isLog {
-		e.logger.Log(slog.LevelDebug, "HTTP Send", "url", url, "exchange", string(e.name))
+		e.logger.Debug("HTTP Send", "url", url)
 	}
 	err = httpClient.Client.Do(req, resp)
 	if err != nil {
-		e.logger.Log(slog.LevelError, "HTTP Error", "url", url, "exchange", string(e.name), "error", err)
-		return
+		e.logger.Error("HTTP Error", "url", url, "error", err)
 	}
 	if isLog {
-		e.logger.Log(slog.LevelDebug, "HTTP Res", "res", string(res), "exchange", string(e.name))
+		e.logger.Debug("HTTP Res", "res", string(res))
 	}
 
 	code = resp.StatusCode()
 	res = resp.Body()
 
-	if res == nil {
-		res = []byte("null")
-	}
-
 	weight, _ := strconv.ParseInt(string(resp.Header.Peek("X-Mbx-Used-Weight-1m")), 10, 64)
 	if weight > e.rateLimitsMinuteCount {
 		err = model.ErrIpRateLimits
-		e.logger.Log(slog.LevelWarn, "WS Api RateLimits", "error", "MINUTE 1分钟限速超限", "weight", weight, "exchange", string(e.name))
+		e.logger.Warn("WS Api RateLimits", "error", "MINUTE 1分钟限速超限", "weight", weight)
 		//jcdlog.TgString(model.Warning, "msg=WS Api RateLimits	error=MINUTE 1分钟限速超限	weight="+strconv.FormatInt(weight, 10)+"	exchange="+string(e.name))
 		e.rateLimitC <- err
 	}
 
 	return
 }
-func (e *BinanceSpotExchange) sendApik(url string, method string, payload map[string]string, isLog bool) (code int, res []byte, err error) {
+func (e *BinancePerpsExchange) sendApik(url string, method string, payload map[string]string, isLog bool) (code int, res []byte, err error) {
 	httpClient := e.httpManger.NewClient()
 	req := httpClient.Req
 	resp := httpClient.Resp
@@ -580,28 +542,23 @@ func (e *BinanceSpotExchange) sendApik(url string, method string, payload map[st
 	req.SetRequestURI(url)
 
 	if isLog {
-		e.logger.Log(slog.LevelDebug, "HTTP Send", "url", url, "exchange", string(e.name))
+		e.logger.Debug("HTTP Send", "url", url)
 	}
 	err = httpClient.Client.Do(req, resp)
 	if err != nil {
-		e.logger.Log(slog.LevelError, "HTTP Error", "url", url, "exchange", string(e.name), "error", err)
-		return
+		e.logger.Error("HTTP Error", "url", url, "error", err)
 	}
 	if isLog {
-		e.logger.Log(slog.LevelDebug, "HTTP Res", "res", string(res), "exchange", string(e.name))
+		e.logger.Debug("HTTP Res", "res", string(res))
 	}
 
 	code = resp.StatusCode()
 	res = resp.Body()
 
-	if res == nil {
-		res = []byte("null")
-	}
-
 	weight, _ := strconv.ParseInt(string(resp.Header.Peek("X-Mbx-Used-Weight-1m")), 10, 64)
 	if weight > e.rateLimitsMinuteCount {
 		err = model.ErrIpRateLimits
-		e.logger.Log(slog.LevelWarn, "WS Api RateLimits", "error", "MINUTE 1分钟限速超限", "weight", weight, "exchange", string(e.name))
+		e.logger.Warn("WS Api RateLimits", "error", "MINUTE 1分钟限速超限", "weight", weight)
 		//jcdlog.TgString(model.Warning, "msg=WS Api RateLimits	error=MINUTE 1分钟限速超限	weight="+strconv.FormatInt(weight, 10)+"	exchange="+string(e.name))
 		e.rateLimitC <- err
 	}
@@ -611,8 +568,8 @@ func (e *BinanceSpotExchange) sendApik(url string, method string, payload map[st
 
 /* ================================================ 获取实时数据 ================================================ */
 
-func (e *BinanceSpotExchange) GetHTTPServerTime() (timeStamp int64, err error) {
-	url := e.getBaseUrl() + "/api/v3/time"
+func (e *BinancePerpsExchange) GetHTTPServerTime() (timeStamp int64, err error) {
+	url := e.getBaseUrl() + "/fapi/v1/time"
 	_, res, err := e.sendNone(url, http.MethodGet, nil, false)
 	if err != nil {
 		return
@@ -629,17 +586,18 @@ func (e *BinanceSpotExchange) GetHTTPServerTime() (timeStamp int64, err error) {
 
 	return
 }
-func (e *BinanceSpotExchange) GetHTTPPrice(symbol model.SymbolName) (price float64, err error) {
-	url := e.getBaseUrl() + "/api/v3/ticker/price"
 
-	nameInExchange, ok := e.allSymbolInfo.GetNameInExchange(e.name, symbol)
+func (e *BinancePerpsExchange) GetHTTPPrice(symbol model.SymbolName) (price float64, err error) {
+	url := e.getBaseUrl() + "/fapi/v1/ticker/price"
+
+	symbolInterface, ok := e.allSymbolInfo.Get(e.name, "", symbol)
 	if !ok {
-		e.logger.Log(slog.LevelWarn, "GetHTTPPrice Error", "error", "symbol not found in symbolInfo", "symbol", string(symbol), "exchange", string(e.name))
+		e.logger.Warn("GetHTTPPrice Error", "error", "symbol not found in symbolInfo", "symbol", string(symbol))
 		return price, errors.New("symbol not found")
 	}
 
 	payload := map[string]string{
-		"symbol": nameInExchange,
+		"symbol": symbolInterface.NameInExchange,
 	}
 	_, res, err := e.sendNone(url, http.MethodGet, payload, true)
 	if err != nil {
@@ -657,18 +615,20 @@ func (e *BinanceSpotExchange) GetHTTPPrice(symbol model.SymbolName) (price float
 
 	return
 }
-func (e *BinanceSpotExchange) GetHTTPBookTicker(symbol model.SymbolName) (bookTicker *model.BookTicker, err error) {
 
-	url := e.getBaseUrl() + "/api/v3/ticker/bookTicker"
+func (e *BinancePerpsExchange) GetHTTPBookTicker(symbol model.SymbolName) (bookTicker *model.BookTicker, err error) {
+	bookTicker = &model.BookTicker{}
 
-	nameInExchange, ok := e.allSymbolInfo.GetNameInExchange(e.name, symbol)
+	url := e.getBaseUrl() + "/fapi/v1/ticker/bookTicker"
+
+	symbolInterface, ok := e.allSymbolInfo.Get(e.name, "", symbol)
 	if !ok {
-		e.logger.Log(slog.LevelWarn, "GetHTTPBookTicker Error", "error", "symbol not found in symbolInfo", "symbol", string(symbol), "exchange", string(e.name))
+		e.logger.Warn("GetHTTPBookTicker Error", "error", "symbol not found in symbolInfo", "symbol", string(symbol))
 		return bookTicker, errors.New("symbol not found")
 	}
 
 	payload := map[string]string{
-		"symbol": nameInExchange,
+		"symbol": symbolInterface.NameInExchange,
 	}
 	_, res, err := e.sendNone(url, http.MethodGet, payload, true)
 	if err != nil {
@@ -679,6 +639,7 @@ func (e *BinanceSpotExchange) GetHTTPBookTicker(symbol model.SymbolName) (bookTi
 
 	data, err := parser.ParseBytes(res)
 	if err != nil {
+		e.logger.Warn("parse ws message error", "error", err.Error())
 		return
 	}
 	askPrice := data.GetFloat64("askPrice")
@@ -695,17 +656,17 @@ func (e *BinanceSpotExchange) GetHTTPBookTicker(symbol model.SymbolName) (bookTi
 		0,
 		0,
 	)
-
 	return
 }
-func (e *BinanceSpotExchange) GetHTTPBalance() (balance *model.AllBalance, err error) {
+
+func (e *BinancePerpsExchange) GetHTTPBalance() (balance *model.AllBalance, err error) {
 	balance = model.NewAllBalance()
 
-	url := e.getBaseUrl() + "/api/v3/account"
+	url := e.getBaseUrl() + "/fapi/v2/account"
 
 	_, res, err := e.sendSign(url, http.MethodGet, map[string]string{"omitZeroBalances": "true"}, true)
 	if err != nil {
-		e.logger.Log(slog.LevelWarn, "GetHTTPBalance error", "error", err.Error())
+		e.logger.Warn("GetHTTPBalance error", "error", err.Error())
 		return
 	}
 
@@ -713,65 +674,65 @@ func (e *BinanceSpotExchange) GetHTTPBalance() (balance *model.AllBalance, err e
 
 	data, err := parser.ParseBytes(res)
 	if err != nil {
-		e.logger.Log(slog.LevelWarn, "GetHTTPBalance error", "error", err.Error())
+		e.logger.Warn("parse ws message error", "error", err.Error())
 		return
 	}
 
-	balances := data.GetArray("balances")
-	for i := range balances {
-		asset := string(balances[i].GetStringBytes("asset"))
-		free := utils.StringToFloat64(string(balances[i].GetStringBytes("free")))
-		locked := utils.StringToFloat64(string(balances[i].GetStringBytes("locked")))
-		balance.Update(asset, &model.Balance{Free: free, Locked: locked})
+	balances := data.GetArray("assets")
+	for _, v := range balances {
+		asset := string(v.GetStringBytes("asset"))
+		free := v.GetFloat64("maxWithdrawAmount")
+		//locked, _ := v.Get("locked").Float64()
+		balance.Update(asset, &model.Balance{Free: free})
 	}
 
 	return
 }
-func (e *BinanceSpotExchange) GetHTTPPosition() (position *model.AllPosition, err error) {
+func (e *BinancePerpsExchange) GetHTTPPosition() (position *model.AllPosition, err error) {
 	err = errors.New("spot exchange have not GetHTTPPosition()")
 	return
 }
 
 /* ================================================ 修改账户设置 ================================================ */
 
-func (e *BinanceSpotExchange) SetPositionSide(isDualMode bool) (err error) {
+func (e *BinancePerpsExchange) SetPositionSide(isDualMode bool) (err error) {
 	err = errors.New("spot exchange have not SetPositionSide()")
 	return
 }
-func (e *BinanceSpotExchange) SetMarginType(isCross bool) (err error) {
+func (e *BinancePerpsExchange) SetMarginType(isCross bool) (err error) {
 	err = errors.New("spot exchange have not SetMarginType()")
 	return
 }
-func (e *BinanceSpotExchange) SetLeverage(symbol model.SymbolName, lev int) (err error) {
+func (e *BinancePerpsExchange) SetLeverage(symbol model.SymbolName, lev int) (err error) {
 	err = errors.New("spot exchange have not SetLeverage()")
 	return
 }
-func (e *BinanceSpotExchange) SetAllLeverage(lev int) (err error) {
+func (e *BinancePerpsExchange) SetAllLeverage(lev int) (err error) {
 	err = errors.New("spot exchange have not SetAllLeverage()")
 	return
 }
 
 /* ================================================ websocket订阅状态更新数据 ================================================ */
 
-func (e *BinanceSpotExchange) GetRateLimitC() chan error {
+func (e *BinancePerpsExchange) GetRateLimitC() chan error {
 	return e.rateLimitC
 }
-func (e *BinanceSpotExchange) GetStructOfAllBanlance() (allBalance *model.AllBalance) {
+func (e *BinancePerpsExchange) GetStructOfAllBanlance() (allBalance *model.AllBalance) {
 	return e.allBalance
 }
-func (e *BinanceSpotExchange) GetStructOfAllPosition() (allPosition *model.AllPosition) {
+func (e *BinancePerpsExchange) GetStructOfAllPosition() (allPosition *model.AllPosition) {
 	return e.allPosition
 }
-func (e *BinanceSpotExchange) GetStructOfAllSymbolInfo() (allSymbolInfo *model.AllSymbolsInfo) {
+func (e *BinancePerpsExchange) GetStructOfAllSymbolInfo() (allSymbolInfo *model.AllSymbolsInfo) {
 	return e.allSymbolInfo
 }
-func (e *BinanceSpotExchange) SetSubBalanceCallback(callback func(data *fastjson.Value)) {
+func (e *BinancePerpsExchange) SetSubBalanceCallback(callback func(data *fastjson.Value)) {
 	if callback == nil {
 		return
 	}
 	e.balanceCallback = callback
 }
-func (e *BinanceSpotExchange) SetSubOrderCallback(callback func(data *fastjson.Value)) {
+func (e *BinancePerpsExchange) SetSubOrderCallback(callback func(data *fastjson.Value)) {
 	if callback == nil {
 		return
 	}
@@ -780,27 +741,26 @@ func (e *BinanceSpotExchange) SetSubOrderCallback(callback func(data *fastjson.V
 
 /* ================================================ websocket订阅业务驱动数据 ================================================ */
 
-func (e *BinanceSpotExchange) SubBookTicker(symbols []model.SymbolName, callback func(msg []byte), isGoroutine bool) error {
+func (e *BinancePerpsExchange) SubBookTicker(symbols []model.SymbolName, callback func(msg []byte), isGoroutine bool) error {
 
 	symbolStrs := make([]string, 0)
 	for _, symbol := range symbols {
-		nameInExchange, ok := e.allSymbolInfo.GetNameInExchange(e.name, symbol)
+		symbolInterface, ok := e.allSymbolInfo.Get(e.name, "", symbol)
 		if !ok {
-			e.logger.Log(slog.LevelWarn, "SubBookTicker error", "error", "symbol not found in symbolInfo", "symbol", string(symbol), "exchange", string(e.name))
+			e.logger.Warn("SubBookTicker error", "error", "symbol not found in symbolInfo", "symbol", string(symbol))
 			return errors.New("symbol not found")
 		}
-		symbolStrs = append(symbolStrs, strings.ToLower(nameInExchange))
+		symbolStrs = append(symbolStrs, strings.ToLower(symbolInterface.NameInExchange))
 	}
 
-	symbolStrss := utils.Arr2Arr(symbolStrs, 400)
+	symbolStrss := utils.Arr2Arr(symbolStrs, 200)
 
 	for i := range symbolStrss {
-
 		url := e.subWsbaseUrl + "/stream?streams=" + strings.Join(symbolStrss[i], "@bookTicker/") + "@bookTicker"
 
-		client, err := e.NewWsClient(url, "", callback, isGoroutine)
+		client, err := binance.NewWsClientWithReconnect(e.logger, e.wsManager, url, "", callback, e.wsHeartBeat, isGoroutine)
 		if err != nil {
-			e.logger.Log(slog.LevelError, "create websocket client error", "url", url, "error", err.Error())
+			e.logger.Error("create websocket client error", "url", url, "error", err.Error())
 			return err
 		}
 
@@ -810,10 +770,11 @@ func (e *BinanceSpotExchange) SubBookTicker(symbols []model.SymbolName, callback
 	return nil
 }
 
-// func (e *BinanceSpotExchange) SubBookTickerFast(connCountPerLocalIP int, symbols []model.SymbolName, callback func(msg []byte), isGoroutine bool) (err error) {
+// func (e *BinancePerpsExchange) SubBookTickerFast(connCountPerLocalIP int, symbols []model.SymbolName, callback func(msg []byte), isGoroutine bool) (err error) {
 // 	localIPs, err := utils.GetAllLocalIPs()
 // 	if err != nil {
-// 		e.logger.Log(slog.LevelWarn, "GetAllLocalIPs error", "error", err.Error(), "exchange", string(e.name))
+// 		jcdlog.LogString(model.Warning, "GetAllLocalIPs GetAllLocalIPs error="+
+// 			err.Error()+"	exchange="+string(e.name))
 // 		return err
 // 	}
 
@@ -823,7 +784,10 @@ func (e *BinanceSpotExchange) SubBookTicker(symbols []model.SymbolName, callback
 // 	for _, symbol := range symbols {
 // 		nameInExchange, ok := e.allSymbolInfo.GetNameInExchange(e.name, symbol)
 // 		if !ok {
-// 			e.logger.Log(slog.LevelWarn, "SubBookTicker error", "error", "symbol not found in symbolInfo", "symbol", string(symbol), "exchange", string(e.name))
+// 			jcdlog.LogString(model.Warning, "msg=SubBookTicker Error"+
+// 				"	error=symbol not found in symbolInfo"+
+// 				"	symbol="+string(symbol)+
+// 				"	exchange="+string(e.name))
 // 			return errors.New("symbol not found")
 // 		}
 // 		streams = append(streams, strings.ToLower(nameInExchange)+"@bookTicker")
@@ -868,7 +832,7 @@ func (e *BinanceSpotExchange) SubBookTicker(symbols []model.SymbolName, callback
 
 // TODO /* ================================================ 订单操作 ================================================ */
 
-func (e *BinanceSpotExchange) NewOrder(newOrder model.NewOrder) (orderDetail *model.OrderDetail, err error) {
+func (e *BinancePerpsExchange) NewOrder(newOrder model.NewOrder) (orderDetail *model.OrderDetail, err error) {
 	orderDetail = &model.OrderDetail{}
 
 	var (
@@ -878,9 +842,9 @@ func (e *BinanceSpotExchange) NewOrder(newOrder model.NewOrder) (orderDetail *mo
 	e.operateWsReadChanMap.Store(id, resC)
 
 	// 构建下单参数
-	symbolInfo, ok := e.allSymbolInfo.Get(e.name, "", newOrder.Symbol)
+	symbol, ok := e.allSymbolInfo.Get(e.name, "", newOrder.Symbol)
 	if !ok {
-		e.logger.Log(slog.LevelWarn, "NewOrder error", "error", "symbol not found in symbolInfo", "symbol", string(newOrder.Symbol), "exchange", string(e.name))
+		e.logger.Warn("NewOrder error", "error", "symbol not found in symbolInfo", "symbol", string(newOrder.Symbol))
 		return orderDetail, errors.New("symbol not found")
 	}
 
@@ -903,7 +867,7 @@ func (e *BinanceSpotExchange) NewOrder(newOrder model.NewOrder) (orderDetail *mo
 	}
 
 	params := map[string]string{
-		"symbol":           symbolInfo.NameInExchange,
+		"symbol":           symbol.NameInExchange,
 		"side":             side,
 		"newOrderRespType": "RESULT",
 		"timestamp":        strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10),
@@ -916,15 +880,13 @@ func (e *BinanceSpotExchange) NewOrder(newOrder model.NewOrder) (orderDetail *mo
 	if newOrder.QuoteOrderQty != 0 {
 		params["quoteOrderQty"] = utils.Float64ToString(utils.FormatFloat(newOrder.QuoteOrderQty, 0))
 	} else {
-		qty := newOrder.Quantity / symbolInfo.CtMult / symbolInfo.CtVal
-		qty = utils.FormatFloat(qty, symbolInfo.QuantityPrecision)
-		params["quantity"] = utils.Float64ToString(qty)
+		params["quantity"] = utils.Float64ToString(utils.FormatFloat(newOrder.Quantity, symbol.QuantityPrecision))
 	}
 
 	switch newOrder.OType {
 	case model.Limit:
 		params["type"] = "LIMIT"
-		params["price"] = utils.Float64ToString(utils.FormatFloat(newOrder.Price, symbolInfo.PricePrecision))
+		params["price"] = utils.Float64ToString(utils.FormatFloat(newOrder.Price, symbol.PricePrecision))
 		params["timeInForce"] = timeInForce
 	case model.Market:
 		params["type"] = "MARKET"
@@ -984,8 +946,7 @@ func (e *BinanceSpotExchange) NewOrder(newOrder model.NewOrder) (orderDetail *mo
 	}
 	return
 }
-
-func (e *BinanceSpotExchange) GetOrder(symbol model.SymbolName, clientOrderID string) (orderDetail *model.OrderDetail, err error) {
+func (e *BinancePerpsExchange) GetOrder(symbol model.SymbolName, clientOrderID string) (orderDetail *model.OrderDetail, err error) {
 	orderDetail = &model.OrderDetail{}
 
 	var (
@@ -1014,7 +975,7 @@ func (e *BinanceSpotExchange) GetOrder(symbol model.SymbolName, clientOrderID st
 
 	return
 }
-func (e *BinanceSpotExchange) DelOrder(symbol model.SymbolName, clientOrderID string) (err error) {
+func (e *BinancePerpsExchange) DelOrder(symbol model.SymbolName, clientOrderID string) (err error) {
 
 	var (
 		resC = make(chan *fastjson.Value)
@@ -1042,7 +1003,7 @@ func (e *BinanceSpotExchange) DelOrder(symbol model.SymbolName, clientOrderID st
 
 	return
 }
-func (e *BinanceSpotExchange) DelAllOrder(symbol model.SymbolName) (err error) {
+func (e *BinancePerpsExchange) DelAllOrder(symbol model.SymbolName) (err error) {
 
 	var (
 		resC = make(chan *fastjson.Value)
@@ -1070,7 +1031,7 @@ func (e *BinanceSpotExchange) DelAllOrder(symbol model.SymbolName) (err error) {
 
 	return
 }
-func (e *BinanceSpotExchange) DelReplace(newOrder model.NewOrder, cancelClientOrderID string) (orderDetail *model.OrderDetail, err error) {
+func (e *BinancePerpsExchange) DelReplace(newOrder model.NewOrder, cancelClientOrderID string) (orderDetail *model.OrderDetail, err error) {
 	orderDetail = &model.OrderDetail{}
 
 	var (
@@ -1100,7 +1061,7 @@ func (e *BinanceSpotExchange) DelReplace(newOrder model.NewOrder, cancelClientOr
 	return
 }
 
-func (e *BinanceSpotExchange) Test() {
+func (e BinancePerpsExchange) Test() {
 	url := e.getBaseUrl() + "/sapi/v1/sub-account/subAccountApi/ipRestriction"
 	e.sendNone(url, http.MethodGet, map[string]string{
 		"email":            "624_virtual@cqmvhds0managedsub.com",
@@ -1109,4 +1070,4 @@ func (e *BinanceSpotExchange) Test() {
 	}, true)
 }
 
-var _ exchange.Exchange = (*BinanceSpotExchange)(nil)
+var _ exchange.Exchange = (*BinancePerpsExchange)(nil)

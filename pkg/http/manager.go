@@ -1,7 +1,6 @@
 package http
 
 import (
-	"log/slog"
 	"os"
 	"strings"
 
@@ -51,10 +50,10 @@ func (m *HTTPManager) Init() {
 	if m.proxy != "" {
 
 		if err := os.Setenv("HTTP_PROXY", m.proxy); err != nil {
-			m.logger.Log(slog.LevelError, "set http proxy error", "error", err)
+			m.logger.Error("set http proxy error", "error", err)
 		}
 		if err := os.Setenv("HTTPS_PROXY", m.proxy); err != nil {
-			m.logger.Log(slog.LevelError, "set http proxy error", "error", err)
+			m.logger.Error("set http proxy error", "error", err)
 		}
 
 		url := strings.TrimPrefix(m.proxy, "https://")

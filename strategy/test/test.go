@@ -2,7 +2,6 @@ package test
 
 import (
 	"fmt"
-	"log/slog"
 	"strconv"
 
 	"github.com/dafsic/hunter/exchange"
@@ -29,13 +28,13 @@ func NewTest(l log.Logger, binanceSpot exchange.Exchange) *Test {
 }
 
 func (t *Test) Start() {
-	t.l.Log(slog.LevelInfo, "test strategy start")
+	t.l.Info("test strategy start")
 	symbolInfo := t.binanceSpot.GetStructOfAllSymbolInfo()
 
 	// 获取所有交易对
 	symbolNames, ok := symbolInfo.GetAllSymbolName(model.BinanceSpot)
 	if !ok {
-		t.l.Log(slog.LevelError, "获取交易所信息失败")
+		t.l.Error("获取交易所信息失败")
 	}
 
 	symbolNames = symbolNames[:300]
@@ -51,7 +50,7 @@ func (t *Test) Start() {
 	var allUpdateID = make(map[string]*updateID)
 	infos, ok := symbolInfo.GetAllSymbol(model.BinanceSpot)
 	if !ok {
-		t.l.Log(slog.LevelError, "获取交易所信息失败")
+		t.l.Error("获取交易所信息失败")
 	}
 	for _, info := range infos {
 		allUpdateID[info.NameInExchange] = newUpdateID()
@@ -65,16 +64,16 @@ func (t *Test) Start() {
 
 		ok := allUpdateID[nameInExchang].Keep(updateID)
 		if ok {
-			t.l.Log(slog.LevelDebug, nameInExchang+"   "+strconv.Itoa(updateID))
+			t.l.Debug(nameInExchang + "   " + strconv.Itoa(updateID))
 		}
 	}
 
-	t.l.Log(slog.LevelInfo, "单网卡单IP多连接")
+	t.l.Info("单网卡单IP多连接")
 	// 订阅最优挂单 (普通模式)
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 1; i++ {
 		err := t.binanceSpot.SubBookTicker(symbolNames, callback, true)
 		if err != nil {
-			t.l.Log(slog.LevelError, "获取交易所信息失败")
+			t.l.Error("获取交易所信息失败")
 			return
 		}
 	}

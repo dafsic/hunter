@@ -1,7 +1,8 @@
-package binance
+package perps
 
 import (
 	"context"
+	"os"
 
 	"github.com/dafsic/hunter/config"
 	"github.com/dafsic/hunter/exchange"
@@ -12,27 +13,27 @@ import (
 	"go.uber.org/fx"
 )
 
-const ModuleName = "binance"
+const ModuleName = "binance.perps"
 
 type Params struct {
 	fx.In
 	Lc fx.Lifecycle
 
-	Cfg    *config.Cfg
-	Logger log.Logger
-	WS     ws.Manager
-	HTTP   http.Manager
+	Cfg  *config.Cfg
+	WS   ws.Manager
+	HTTP http.Manager
 }
 
 type Result struct {
 	fx.Out
 
-	Exchange exchange.Exchange `name:"BinanceSpot"`
+	Exchange exchange.Exchange `name:"BinancePerps"`
 }
 
 // NewFx wrap NewBinanceSpot with fx
 func NewFx(p Params) (Result, error) {
-	e, err := NewBinanceSpot(p.Logger, p.WS, p.HTTP, p.Cfg.Binance)
+	l := log.New(os.Stdout, ModuleName, log.StringToLevel(p.Cfg.Log.Level))
+	e, err := NewBinancePerps(l, p.WS, p.HTTP, p.Cfg.Binance)
 	if err != nil {
 		return Result{}, err
 	}

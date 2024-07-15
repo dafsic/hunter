@@ -1,29 +1,31 @@
 package binance
 
 import (
-	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/dafsic/hunter/pkg/log"
 	"github.com/dafsic/hunter/pkg/ws"
 )
 
-type BinanceWsClient struct {
+type WsClient struct {
 	client ws.Client
 	stopC  chan struct{}
 	rLock  sync.RWMutex
+	logger log.Logger
 }
 
-func (e *BinanceSpotExchange) NewWsClient(url, localIP string, callback ws.CallbackFunc, isGoroutine bool) (*BinanceWsClient, error) {
-	client, err := e.wsManager.NewClient(url, localIP, callback, e.wsHeartBeat, isGoroutine)
+func NewWsClientWithReconnect(l log.Logger, mgr ws.Manager, url, localIP string, callback ws.CallbackFunc, heartBeat int, isGoroutine bool) (*WsClient, error) {
+	client, err := mgr.NewClient(url, localIP, callback, heartBeat, isGoroutine)
 	if err != nil {
 		return nil, err
 	}
 
-	c := &BinanceWsClient{
+	c := &WsClient{
 		client: client,
 		stopC:  make(chan struct{}),
 		rLock:  sync.RWMutex{},
+		logger: l,
 	}
 
 	// 处理断线重连
@@ -40,9 +42,9 @@ func (e *BinanceSpotExchange) NewWsClient(url, localIP string, callback ws.Callb
 			case <-disconnectC:
 				c.rLock.Lock()
 				for {
-					client, err = e.wsManager.NewClient(url, localIP, callback, e.wsHeartBeat, isGoroutine)
+					client, err = mgr.NewClient(url, localIP, callback, heartBeat, isGoroutine)
 					if err != nil {
-						e.logger.Log(slog.LevelWarn, "websocket reconnected fail", "url", url, "error", err)
+						c.logger.Warn("websocket reconnected fail", "url", url, "error", err)
 						time.Sleep(1 * time.Second)
 						continue
 					}
@@ -57,13 +59,13 @@ func (e *BinanceSpotExchange) NewWsClient(url, localIP string, callback ws.Callb
 	return c, nil
 }
 
-func (c *BinanceWsClient) Close() {
+func (c *WsClient) Close() {
 	c.stopC <- struct{}{}
 	c.client.Close() // 等待websket连接关闭。要退出了，就不用加锁了，最保险就加一个waitgroup，等待处理断线重连程序结束
 	close(c.stopC)
 }
 
-func (c *BinanceWsClient) SendMessage(msg []byte) error {
+func (c *WsClient) SendMessage(msg []byte) error {
 	c.rLock.RLock()
 	defer c.rLock.RUnlock()
 

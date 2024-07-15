@@ -3,7 +3,6 @@ package ws
 import (
 	"context"
 	"crypto/tls"
-	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -83,7 +82,7 @@ func (ws *wsClient) Close() {
 	ws.wg.Wait()
 	_ = ws.conn.WriteControl(websocket.CloseMessage, []byte{}, time.Now().Add(ws.writeWait))
 	_ = ws.conn.Close()
-	ws.l.Log(slog.LevelInfo, "closed ws", "url", ws.urlString)
+	ws.l.Info("closed ws", "url", ws.urlString)
 }
 
 // connect 连接WebSocket服务器
@@ -156,7 +155,7 @@ func (ws *wsClient) keepalibe() {
 		case <-ticker.C:
 			err = ws.conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second))
 			if err != nil {
-				ws.l.Log(slog.LevelWarn, "send ping error", "error", err)
+				ws.l.Warn("send ping error", "error", err)
 				ws.disconnectC <- struct{}{}
 			}
 		}
@@ -172,7 +171,7 @@ func (ws *wsClient) readLoop() {
 		default:
 			_, message, err := ws.conn.ReadMessage()
 			if err != nil {
-				ws.l.Log(slog.LevelError, "msg=Read WS message", "message", string(message))
+				ws.l.Error("read ws message error", "message", string(message), "error", err)
 				ws.disconnectC <- struct{}{}
 			}
 

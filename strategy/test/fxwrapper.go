@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"os"
 
 	"github.com/dafsic/hunter/config"
 	"github.com/dafsic/hunter/exchange"
@@ -17,7 +18,6 @@ type Params struct {
 	Lc fx.Lifecycle
 
 	Cfg         *config.Cfg
-	Logger      log.Logger
 	BinanceSpot exchange.Exchange `name:"BinanceSpot"`
 }
 
@@ -28,8 +28,9 @@ type Result struct {
 }
 
 func NewFx(p Params) Result {
+	logger := log.New(os.Stdout, ModuleName, log.LevelDebug)
 
-	t := NewTest(p.Logger, p.BinanceSpot)
+	t := NewTest(logger, p.BinanceSpot)
 
 	p.Lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
@@ -37,6 +38,7 @@ func NewFx(p Params) Result {
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
+			logger.Flush()
 			return nil
 		},
 	})

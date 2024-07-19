@@ -13,7 +13,7 @@ type BufferLogger struct {
 }
 
 func New(out io.Writer, prefix string, level Level) *BufferLogger {
-	bufferedWriter := utils.NewBufferedWriter(out, 2048) // 2KB
+	bufferedWriter := utils.NewBufferedWriter(out, 10240) // 10KB
 	textHandler := slog.NewTextHandler(bufferedWriter, &slog.HandlerOptions{
 		Level: slog.Level(level.toSlogLevel()),
 	})

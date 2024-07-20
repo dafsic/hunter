@@ -1,3 +1,8 @@
+## 流程图
+![flow](/strategy/assets/test.png)
+
+
+## 伪代码
 ```
 行情分析函数 () {
 	for {

@@ -13,12 +13,12 @@ import (
 func (e *BinanceSpotExchange) getAllSymbolInfo() (*exchange.AllSymbolsInfo, error) {
 	var (
 		parser  fastjson.Parser
-		urlPath = e.getBaseUrl() + "/api/v3/exchangeInfo"
+		urlPath = e.GetBaseUrl() + "/api/v3/exchangeInfo"
 	)
 
 	// urlPath += "?symbols=[\"" + strings.Join(symbols, `","`) + "\"]"
 
-	_, res, err := e.send(urlPath, "GET", nil, nil)
+	_, res, err := e.Send(urlPath, "GET", nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w%s", err, utils.LineInfo())
 	}

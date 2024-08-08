@@ -61,6 +61,8 @@ type Exchange interface {
 	WebSocketManager() ws.Manager
 	// 获取服务器当前毫秒级时间戳
 	GetServerTime() (timeStamp int64, err error)
+	// 获取交易所的基础url
+	GetBaseUrl() string
 	// 获取交易对规范信息
 	GetSymbolInfo(symbolName SymbolName) *SymbolInfo
 	// 根据交易所中的名字，获取交易对规范信息
@@ -73,5 +75,8 @@ type Exchange interface {
 	CreateOrderController(localIP string, apiKey string, secretKey ed25519.PrivateKey) (OrderController, error)
 	// 创建账户控制器
 	CreateAccountController(localIP, listenKey string) (AccountController, error)
-	//SubBookTicker(symbols []string, callback func(msg []byte), isGoroutine bool) error
+	// 通过http向交易所发出请求
+	Send(url string, method string, payload map[string]string, header map[string]string) (code int, res []byte, err error)
+	SendWithApikey(url string, method string, payload map[string]string, apiKey string) (code int, res []byte, err error)
+	SendWithSign(url string, method string, payload map[string]string, apiKey, secretKey string) (code int, res []byte, err error)
 }

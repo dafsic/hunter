@@ -18,7 +18,6 @@ import (
 
 	"github.com/dafsic/hunter/utils"
 
-	jsoniter "github.com/json-iterator/go"
 	"github.com/valyala/fastjson"
 )
 
@@ -144,11 +143,8 @@ func (e *BinanceSpotExchange) CreateMarketController(symbols []exchange.SymbolNa
 // CreateAccountController 创建账户控制器
 // Parameters:
 //   - localIP: 本地IP
-//   - listenKey: LisenKey(需要调用方自行维护lisenKey的有效期)
-//   - callback: 回调函数
-func (e *BinanceSpotExchange) CreateAccountController(localIP, listenKey string) (exchange.AccountController, error) {
-	url := e.subWsbaseUrl + "/ws/" + listenKey
-	return NewSpotAccountController(e, url, localIP, e.wsHeartBeat)
+func (e *BinanceSpotExchange) CreateAccountController(localIP, apiKey string) (exchange.AccountController, error) {
+	return NewSpotAccountController(e, e.subWsbaseUrl, apiKey, localIP, e.wsHeartBeat)
 }
 
 // ===================================old================================================
@@ -177,7 +173,7 @@ func (e *BinanceSpotExchange) updateFasterApi() {
 			for _, vlaue := range e.baseHTTPUrlS {
 				urlPath := vlaue + "/api/v3/ping"
 				t1 := time.Now()
-				e.send(urlPath, "GET", nil, nil)
+				e.Send(urlPath, "GET", nil, nil)
 				if time.Since(t1) < minTime {
 					minTime = time.Since(t1)
 					e.baseHTTPUrlRlock.Lock()
@@ -211,56 +207,16 @@ func (e *BinanceSpotExchange) updateAllSymbolInfo() {
 }
 
 /* ========================= 辅助函数 ========================= */
-func (e *BinanceSpotExchange) getBaseUrl() string {
+func (e *BinanceSpotExchange) GetBaseUrl() string {
 	// 获取现货baseUrl
 	e.baseHTTPUrlRlock.RLock()
 	defer e.baseHTTPUrlRlock.RUnlock()
 	return e.baseHTTPUrl
 }
 
-func (e *BinanceSpotExchange) CreateLisenKey(apiKey string) (string, error) {
-	// 获取现货LisenKey
-	urlPath := e.getBaseUrl() + "/api/v3/userDataStream"
-	_, res, err := e.sendWithApikey(urlPath, "POST", nil, apiKey)
-	if err != nil {
-		return "", fmt.Errorf("%w%s", err, utils.LineInfo())
-	}
-
-	var lisenKeyData struct {
-		ListenKey string `json:"listenKey"`
-	}
-
-	err = jsoniter.Unmarshal(res, &lisenKeyData)
-	if err != nil {
-		return "", fmt.Errorf("%w%s", err, utils.LineInfo())
-	}
-
-	go func() {
-		// 更新 LisenKey 有效期
-		e.wg.Add(1)
-		defer e.wg.Done()
-		tick := time.NewTicker(10 * time.Minute)
-		defer tick.Stop()
-
-		for {
-			select {
-			case <-e.ctx.Done():
-				return
-			case <-tick.C:
-				_, _, err = e.sendWithApikey(urlPath, "PUT", map[string]string{"listenKey": lisenKeyData.ListenKey}, apiKey)
-				if err != nil {
-					e.logger.Warn("refresh lisenKey error", "error", err.Error())
-				}
-			}
-		}
-	}()
-
-	return lisenKeyData.ListenKey, nil
-}
-
 /* ========================= HTTP底层执行 ========================= */
 
-func (e *BinanceSpotExchange) send(url string, method string, payload map[string]string, header map[string]string) (code int, res []byte, err error) {
+func (e *BinanceSpotExchange) Send(url string, method string, payload map[string]string, header map[string]string) (code int, res []byte, err error) {
 	httpClient := e.httpManger.NewClient()
 	defer httpClient.Drop()
 	req := httpClient.Req
@@ -294,7 +250,7 @@ func (e *BinanceSpotExchange) send(url string, method string, payload map[string
 	return
 }
 
-func (e *BinanceSpotExchange) sendWithSign(url string, method string, payload map[string]string, apiKey, secretKey string) (code int, res []byte, err error) {
+func (e *BinanceSpotExchange) SendWithSign(url string, method string, payload map[string]string, apiKey, secretKey string) (code int, res []byte, err error) {
 	// HTTP鉴权请求添加 timestamp、recvWindow、signature 参数
 	payload["timestamp"] = strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
 	payload["recvWindow"] = "3500"
@@ -305,23 +261,23 @@ func (e *BinanceSpotExchange) sendWithSign(url string, method string, payload ma
 		"Content-Type": "application/json;charset=utf-8",
 	}
 
-	return e.send(url, method, payload, header)
+	return e.Send(url, method, payload, header)
 }
 
-func (e *BinanceSpotExchange) sendWithApikey(url string, method string, payload map[string]string, apiKey string) (code int, res []byte, err error) {
+func (e *BinanceSpotExchange) SendWithApikey(url string, method string, payload map[string]string, apiKey string) (code int, res []byte, err error) {
 	header := map[string]string{
 		"X-MBX-APIKEY": apiKey,
 		"Content-Type": "application/json;charset=utf-8",
 	}
 
-	return e.send(url, method, payload, header)
+	return e.Send(url, method, payload, header)
 }
 
 /* ================================================ 获取实时数据 ================================================ */
 
 func (e *BinanceSpotExchange) GetServerTime() (timeStamp int64, err error) {
-	url := e.getBaseUrl() + "/api/v3/time"
-	_, res, err := e.send(url, http.MethodGet, nil, nil)
+	url := e.GetBaseUrl() + "/api/v3/time"
+	_, res, err := e.Send(url, http.MethodGet, nil, nil)
 	if err != nil {
 		return
 	}
@@ -339,7 +295,7 @@ func (e *BinanceSpotExchange) GetServerTime() (timeStamp int64, err error) {
 }
 
 func (e *BinanceSpotExchange) GetPrice(symbol exchange.SymbolName) (price float64, err error) {
-	url := e.getBaseUrl() + "/api/v3/ticker/price"
+	url := e.GetBaseUrl() + "/api/v3/ticker/price"
 
 	nameInExchange, ok := e.allSymbolInfo.GetNameInExchange(symbol)
 	if !ok {
@@ -352,7 +308,7 @@ func (e *BinanceSpotExchange) GetPrice(symbol exchange.SymbolName) (price float6
 	}
 
 	e.logger.Debug("HTTP Send", "url", url)
-	_, res, err := e.send(url, http.MethodGet, payload, nil)
+	_, res, err := e.Send(url, http.MethodGet, payload, nil)
 	if err != nil {
 		return
 	}
@@ -372,7 +328,7 @@ func (e *BinanceSpotExchange) GetPrice(symbol exchange.SymbolName) (price float6
 
 func (e *BinanceSpotExchange) GetBookTicker(symbol exchange.SymbolName) (bookTicker *exchange.BookTicker, err error) {
 
-	url := e.getBaseUrl() + "/api/v3/ticker/bookTicker"
+	url := e.GetBaseUrl() + "/api/v3/ticker/bookTicker"
 
 	nameInExchange, ok := e.allSymbolInfo.GetNameInExchange(symbol)
 	if !ok {
@@ -384,7 +340,7 @@ func (e *BinanceSpotExchange) GetBookTicker(symbol exchange.SymbolName) (bookTic
 		"symbol": nameInExchange,
 	}
 	e.logger.Debug("HTTP Send", "url", url)
-	_, res, err := e.send(url, http.MethodGet, payload, nil)
+	_, res, err := e.Send(url, http.MethodGet, payload, nil)
 	if err != nil {
 		return
 	}
@@ -418,10 +374,10 @@ func (e *BinanceSpotExchange) GetBookTicker(symbol exchange.SymbolName) (bookTic
 func (e *BinanceSpotExchange) GetBalance(apiKey, secretKey string) (balance *exchange.AllBalance, err error) {
 	balance = exchange.NewAllBalance()
 
-	url := e.getBaseUrl() + "/api/v3/account"
+	url := e.GetBaseUrl() + "/api/v3/account"
 
 	e.logger.Debug("HTTP Send", "url", url)
-	_, res, err := e.sendWithSign(url, http.MethodGet, map[string]string{"omitZeroBalances": "true"}, apiKey, secretKey)
+	_, res, err := e.SendWithSign(url, http.MethodGet, map[string]string{"omitZeroBalances": "true"}, apiKey, secretKey)
 	if err != nil {
 		e.logger.Warn("GetHTTPBalance error", "error", err.Error())
 		return
@@ -471,9 +427,9 @@ func (e *BinanceSpotExchange) SetAllLeverage(lev int) (err error) {
 }
 
 func (e *BinanceSpotExchange) Test() {
-	url := e.getBaseUrl() + "/sapi/v1/sub-account/subAccountApi/ipRestriction"
+	url := e.GetBaseUrl() + "/sapi/v1/sub-account/subAccountApi/ipRestriction"
 	e.logger.Debug("HTTP Send", "url", url)
-	_, res, _ := e.send(url, http.MethodGet, map[string]string{
+	_, res, _ := e.Send(url, http.MethodGet, map[string]string{
 		"email":            "624_virtual@cqmvhds0managedsub.com",
 		"subAccountApiKey": "L5uh9sCbrThUpiRrrYOSEhOp1lgzLG8G4S9SFDbuSPZfIGRumplPlrRG9ElrPLnM",
 		"timestamp":        strconv.FormatInt(time.Now().UnixMilli(), 10),

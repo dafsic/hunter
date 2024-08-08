@@ -1,12 +1,14 @@
 package spot
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/dafsic/hunter/exchange"
 	"github.com/dafsic/hunter/pkg/ws"
 	"github.com/dafsic/hunter/utils"
+	jsoniter "github.com/json-iterator/go"
 	"github.com/valyala/fastjson"
 )
 
@@ -19,13 +21,18 @@ type SpotAccountController struct {
 	orderUpdateC chan *exchange.OrderUpdate
 }
 
-func NewSpotAccountController(e exchange.Exchange, url, localIP string, heartBeat int) (*SpotAccountController, error) {
+func NewSpotAccountController(e exchange.Exchange, url, apiKey, localIP string, heartBeat int) (*SpotAccountController, error) {
 	ac := &SpotAccountController{
 		e:            e,
 		stopC:        make(chan struct{}),
 		balanceC:     make(chan *exchange.Balance),
 		orderUpdateC: make(chan *exchange.OrderUpdate),
 	}
+	listenKey, err := ac.CreateLisenKey(apiKey)
+	if err != nil {
+		return nil, err
+	}
+	url = url + "/ws/" + listenKey
 
 	client, err := e.WebSocketManager().NewClient(url, localIP, ac.callback, heartBeat, true)
 	if err != nil {
@@ -78,6 +85,44 @@ func (ac *SpotAccountController) BalanceChannel() <-chan *exchange.Balance {
 
 func (ac *SpotAccountController) OrderUpdateChannel() <-chan *exchange.OrderUpdate {
 	return ac.orderUpdateC
+}
+
+func (ac *SpotAccountController) CreateLisenKey(apiKey string) (string, error) {
+	// 获取现货LisenKey
+	urlPath := ac.e.GetBaseUrl() + "/api/v3/userDataStream"
+	_, res, err := ac.e.SendWithApikey(urlPath, "POST", nil, apiKey)
+	if err != nil {
+		return "", fmt.Errorf("%w%s", err, utils.LineInfo())
+	}
+
+	var lisenKeyData struct {
+		ListenKey string `json:"listenKey"`
+	}
+
+	err = jsoniter.Unmarshal(res, &lisenKeyData)
+	if err != nil {
+		return "", fmt.Errorf("%w%s", err, utils.LineInfo())
+	}
+
+	go func() {
+		// 更新 LisenKey 有效期
+		tick := time.NewTicker(10 * time.Minute)
+		defer tick.Stop()
+
+		for {
+			select {
+			case <-ac.stopC:
+				return
+			case <-tick.C:
+				_, _, err = ac.e.SendWithApikey(urlPath, "PUT", map[string]string{"listenKey": lisenKeyData.ListenKey}, apiKey)
+				if err != nil {
+					ac.e.Logger().Warn("refresh lisenKey error", "error", err.Error())
+				}
+			}
+		}
+	}()
+
+	return lisenKeyData.ListenKey, nil
 }
 
 func (ac *SpotAccountController) callback(msg []byte) {

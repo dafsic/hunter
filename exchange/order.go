@@ -1,4 +1,4 @@
-package model
+package exchange
 
 import (
 	"sync"
@@ -8,15 +8,15 @@ import (
 
 // 新建订单
 type NewOrder struct {
-	Symbol        SymbolName // 交易对
 	OType         OrderType  // 订单类型
-	Quantity      float64    // 统一为币种名义数量，如果合约下单单位为张数，需要使用合约乘数进行转换
-	QuoteOrderQty float64    // 市价买单的总金额
 	Side          OrderSide  // 订单方向
 	TimeInForce   OrderForce // 有效时间
+	ReduceOnly    bool       // 是否只减仓
+	Symbol        SymbolName // 交易对
+	Quantity      float64    // 统一为币种名义数量，如果合约下单单位为张数，需要使用合约乘数进行转换
+	QuoteOrderQty float64    // 市价买单的总金额
 	Price         float64    // 价格
 	ClientOrderID string     // 自定义订单ID
-	ReduceOnly    bool       // 是否只减仓
 }
 
 // 订单详情
@@ -124,23 +124,32 @@ func (o *OrderDetailMap) Get(k string) (*OrderDetail, bool) {
 // 订单更新推送
 // ! 不推荐使用，因为每次推送都会解析全部字段，建议直接使用原始数据，需要什么字段自己解析，减少解析次数，提高性能
 type OrderUpdate struct {
-	UpdateType OrderUpdateType // 更新类型
-	Symbol     SymbolName      // 交易对
 	ClientID   string          // 自定义订单ID
-	OrderID    int64           // 订单ID
-	TradeID    int64           // 成交ID
-	OrderState OrderState      // 订单状态
-	OrderSide  OrderSide       // 订单方向
-	OrderType  OrderType       // 订单类型
-	OrigPrice  float64         // 原始订单价格
-	OrigQty    float64         // 原始订单数量
+	Symbol     SymbolName      // 交易对
+	UpdateType OrderUpdateType // 更新类型
 	TradeQty   float64         // 本次成交数量
 	TradePrice float64         // 本次成交价格
-	FeeQty     float64         // 手续费数量
-	FeeAsset   string          // 手续费资产
-	MakeTime   int64           // 订单创建时间
 	TradeTime  int64           // 本次成交时间
-	IsMaker    bool            // 是否为挂单成交
-	SumQty     float64         // 累计已成交数量
-	SumMoney   float64         // 累计已成交金额
 }
+
+// type OrderUpdate struct {
+// 	UpdateType OrderUpdateType // 更新类型
+// 	OrderState OrderState      // 订单状态
+// 	OrderSide  OrderSide       // 订单方向
+// 	OrderType  OrderType       // 订单类型
+// 	Symbol     SymbolName      // 交易对
+// 	ClientID   string          // 自定义订单ID
+// 	OrderID    int64           // 订单ID
+// 	TradeID    int64           // 成交ID
+// 	OrigPrice  float64         // 原始订单价格
+// 	OrigQty    float64         // 原始订单数量
+// 	TradeQty   float64         // 本次成交数量
+// 	TradePrice float64         // 本次成交价格
+// 	FeeQty     float64         // 手续费数量
+// 	FeeAsset   string          // 手续费资产
+// 	MakeTime   int64           // 订单创建时间
+// 	TradeTime  int64           // 本次成交时间
+// 	IsMaker    bool            // 是否为挂单成交
+// 	SumQty     float64         // 累计已成交数量
+// 	SumMoney   float64         // 累计已成交金额
+// }

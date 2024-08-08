@@ -1,11 +1,11 @@
-package utils
+package toggler
 
 import (
 	"testing"
 )
 
 func TestSwtich(t *testing.T) {
-	var s Switcher
+	var s Switch
 
 	// go func() {
 	// 	for i := 0; i < 10; i++ {
@@ -17,7 +17,7 @@ func TestSwtich(t *testing.T) {
 	// }()
 
 	s.On()
-	if s.State() != Switcher(1) {
+	if s.State() != On {
 		t.Error(s.State())
 	}
 

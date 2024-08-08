@@ -1,7 +1,6 @@
-package model
+package exchange
 
 import (
-	"sync"
 	"time"
 )
 
@@ -17,7 +16,7 @@ type BookTicker struct {
 	uTime      int64      // 数据在交易所的更新时间
 	resTime    int64      // 数据接收时间
 
-	rlock *sync.RWMutex
+	// rlock *sync.RWMutex
 }
 
 func NewBookTicker(
@@ -38,15 +37,14 @@ func NewBookTicker(
 		updateID:   updateID,
 		uTime:      uTime,
 		resTime:    time.Now().UnixMilli(),
-		rlock:      new(sync.RWMutex),
+		// rlock:      new(sync.RWMutex),
 	}
 }
 
 func (b *BookTicker) Get() (symbolName SymbolName, askPrice float64, askQty float64, bidPrice float64, bidQty float64, updateID int64, uTime int64) {
-	b.rlock.RLock()
-	defer b.rlock.RUnlock()
 	return b.symbolName, b.askPrice, b.askQty, b.bidPrice, b.bidQty, b.updateID, b.uTime
 }
+
 func (b *BookTicker) Update(
 	askPrice float64,
 	askQty float64,
@@ -55,9 +53,6 @@ func (b *BookTicker) Update(
 	updateID int64,
 	uTime int64,
 ) bool {
-	b.rlock.Lock()
-	defer b.rlock.Unlock()
-
 	if b.updateID < updateID {
 		b.askPrice = askPrice
 		b.askQty = askQty

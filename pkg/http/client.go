@@ -14,3 +14,7 @@ func (h *HTTPClient) Drop() {
 	fasthttp.ReleaseRequest(h.Req)
 	fasthttp.ReleaseResponse(h.Resp)
 }
+
+func (h *HTTPClient) Do() error {
+	return h.Client.Do(h.Req, h.Resp)
+}

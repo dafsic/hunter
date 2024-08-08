@@ -27,10 +27,13 @@ type Result struct {
 	Test Stratety
 }
 
-func NewFx(p Params) Result {
+func NewFx(p Params) (Result, error) {
 	logger := log.New(os.Stdout, ModuleName, log.LevelDebug)
 
-	t := NewTest(logger, p.BinanceSpot)
+	t, err := NewTest(logger, p.BinanceSpot, p.Cfg.Binance)
+	if err != nil {
+		return Result{}, err
+	}
 
 	p.Lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
@@ -43,7 +46,7 @@ func NewFx(p Params) Result {
 		},
 	})
 
-	return Result{Test: t}
+	return Result{Test: t}, nil
 }
 
 // Module for fx

@@ -1,4 +1,4 @@
-package model
+package exchange
 
 /* 合约持仓 */
 

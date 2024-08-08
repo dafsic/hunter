@@ -6,10 +6,11 @@ import (
 	"github.com/dafsic/hunter/pkg/log"
 )
 
-type CallbackFunc func(msg []byte)
+type Handler func(msg []byte)
+type ErrorHandler func(error)
 
 type Manager interface {
-	NewClient(url, localIP string, cb CallbackFunc, heartbeat int, isGoroutine bool) (Client, error)
+	NewClient(url, localIP string, cb Handler, heartbeat int, isGoroutine bool) (Client, error)
 }
 
 type WsManager struct {

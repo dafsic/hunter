@@ -28,14 +28,14 @@ type wsClient struct {
 	disconnectC chan struct{}
 	pingWait    time.Duration
 	writeWait   time.Duration
-	callback    CallbackFunc
+	handler     Handler
 	cancelFunc  context.CancelFunc
 	isGoroutine bool
 	wg          sync.WaitGroup
 	l           log.Logger
 }
 
-func (m *WsManager) NewClient(url, localIP string, cb CallbackFunc, heartbeat int, isGoroutine bool) (Client, error) {
+func (m *WsManager) NewClient(url, localIP string, cb Handler, heartbeat int, isGoroutine bool) (Client, error) {
 	var err error
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	ws := &wsClient{
@@ -43,7 +43,7 @@ func (m *WsManager) NewClient(url, localIP string, cb CallbackFunc, heartbeat in
 		localIP:     localIP,
 		pingWait:    time.Duration(heartbeat) * time.Second,
 		disconnectC: make(chan struct{}, 8),
-		callback:    cb,
+		handler:     cb,
 		isGoroutine: isGoroutine,
 		l:           m.logger,
 		proxy:       m.proxy,
@@ -156,7 +156,6 @@ func (ws *wsClient) keepalibe() {
 			err = ws.conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second))
 			if err != nil {
 				ws.l.Warn("send ping error", "error", err)
-				ws.disconnectC <- struct{}{}
 			}
 		}
 	}
@@ -168,6 +167,8 @@ func (ws *wsClient) readLoop() {
 		select {
 		case <-ws.ctx.Done():
 			return
+		case <-ws.disconnectC:
+			ws.Close()
 		default:
 			_, message, err := ws.conn.ReadMessage()
 			if err != nil {
@@ -176,9 +177,9 @@ func (ws *wsClient) readLoop() {
 			}
 
 			if ws.isGoroutine {
-				go ws.callback(message)
+				go ws.handler(message)
 			} else {
-				ws.callback(message)
+				ws.handler(message)
 			}
 		}
 	}

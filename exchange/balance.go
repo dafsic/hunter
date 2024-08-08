@@ -1,4 +1,4 @@
-package model
+package exchange
 
 /* 资产余额 */
 

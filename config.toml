@@ -21,3 +21,6 @@ api_key = ""
 secret_key = ""
 ed25519_api_key = ""
 ed25519_private_key = ""
+
+[strage]
+symbols = [["PEPEUSDT","1000PEPEUSDT"],]

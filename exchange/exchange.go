@@ -74,7 +74,7 @@ type Exchange interface {
 	// 创建订单控制器
 	CreateOrderController(localIP string, apiKey string, secretKey ed25519.PrivateKey) (OrderController, error)
 	// 创建账户控制器
-	CreateAccountController(localIP, listenKey string) (AccountController, error)
+	CreateAccountController(localIP, apiKey string) (AccountController, error)
 	// 通过http向交易所发出请求
 	Send(url string, method string, payload map[string]string, header map[string]string) (code int, res []byte, err error)
 	SendWithApikey(url string, method string, payload map[string]string, apiKey string) (code int, res []byte, err error)

@@ -33,7 +33,7 @@ type Result struct {
 // NewFx wrap NewBinanceSpot with fx
 func NewFx(p Params) (Result, error) {
 	l := log.New(os.Stdout, ModuleName, log.StringToLevel(p.Cfg.Log.Level))
-	e, err := NewBinancePerps(l, p.WS, p.HTTP, p.Cfg.Binance)
+	e, err := NewBinancePerps(l, p.WS, p.HTTP)
 	if err != nil {
 		return Result{}, err
 	}
